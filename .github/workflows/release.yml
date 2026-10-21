@@ -1,0 +1,60 @@
+# Build and publish a release when a v* tag is pushed.
+#
+# Produces ssh-copy-id_windows_{amd64,arm64}.exe plus the winget manifests
+# (winget-manifests.zip) on the GitHub release. The first winget submission
+# is made by hand from that zip (see README.md). Once the package exists in
+# winget-pkgs, setting the WINGET_TOKEN secret (classic PAT, public_repo scope)
+# makes this workflow open the update PR itself.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test ./...
+
+      - name: Build
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          mkdir dist
+          for arch in amd64 arm64; do
+            GOOS=windows GOARCH=$arch CGO_ENABLED=0 go build -trimpath \
+              -ldflags "-s -w -X main.version=$version" \
+              -o dist/ssh-copy-id_windows_$arch.exe .
+          done
+          sh winget/manifests.sh "$version" dist/ssh-copy-id_windows_amd64.exe \
+            dist/ssh-copy-id_windows_arm64.exe manifests
+          (cd manifests && zip -q ../dist/winget-manifests.zip *.yaml)
+          (cd dist && sha256sum *.exe > SHA256SUMS)
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes
+
+      - name: Update winget-pkgs
+        if: ${{ env.WINGET_TOKEN != '' }}
+        uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: daniel-widrick.ssh-copy-id
+          installers-regex: '_windows_(amd64|arm64)\.exe$'
+          token: ${{ secrets.WINGET_TOKEN }}

@@ -1,0 +1,42 @@
+# Comprehensive code scan on every pull request and push to main.
+# Posts a consolidated report as a PR comment and uploads the full report.
+name: Code scan
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0   # full history for Gitleaks and for diffing against the PR base
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Tests with coverage
+        run: go test ./... -coverprofile=coverage.out
+        continue-on-error: true   # a failing test must not hide the scan
+
+      - name: Scan
+        id: scan
+        # Self-hosted and released by moving the v1 tag on purpose, so each
+        # scanner release is picked up without a workflow edit. The
+        # third-party actions above are pinned to commits instead.
+        uses: https://git.home.widrick.net/lvlint67/forgejo-secscan@v1 # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+        with:
+          coverage-files: coverage.out
+          fail-on: high
+
+      - name: Upload report
+        if: always()
+        uses: https://code.forgejo.org/forgejo/upload-artifact@16871d9e8cfcf27ff31822cac382bbb5450f1e1e # v4
+        with:
+          name: secscan-report
+          path: secscan-report
