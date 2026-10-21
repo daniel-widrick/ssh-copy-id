@@ -1,0 +1,5 @@
+# Read by forgejo-secscan. The gate and coverage file are set here as well as
+# in the workflow's `with:` because secscan 1.0.4 does not see action inputs
+# on this runner (the report shows fail_on none and no coverage files).
+fail_on: high
+coverage_files: coverage.out

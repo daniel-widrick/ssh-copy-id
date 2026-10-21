@@ -19,6 +19,9 @@ import (
 
 var version = "dev"
 
+// sshCommand is the client binary; tests point it at a fake.
+var sshCommand = "ssh"
+
 const usage = `Usage: ssh-copy-id [-f] [-n] [-x] [-i [identity_file]] [-t target_path] [-F ssh_config] [[-o ssh_option] ...] [-p port] [user@]hostname
 	-f: force mode -- copy keys without checking if they are already installed
 	-n: dry run    -- no keys are actually copied
@@ -72,52 +75,18 @@ func parseArgs(args []string) (*options, error) {
 	var rest []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		if a == "--" {
+		switch {
+		case a == "--":
 			rest = append(rest, args[i+1:]...)
-			break
-		}
-		if len(a) < 2 || a[0] != '-' {
+			i = len(args)
+		case len(a) < 2 || a[0] != '-':
 			rest = append(rest, a)
-			continue
-		}
-		for j := 1; j < len(a); j++ {
-			c := a[j]
-			switch c {
-			case 'f':
-				o.force = true
-			case 'n':
-				o.dryRun = true
-			case 'x':
-				o.debug = true
-			case 'h', '?':
-				return nil, errHelp
-			case 'V':
-				return nil, errVersion
-			case 'i', 't', 'F', 'o', 'p':
-				val := a[j+1:]
-				if val == "" {
-					if c == 'i' && i+2 >= len(args) {
-						o.identitySet = true
-						break
-					}
-					if i+1 >= len(args) {
-						return nil, fmt.Errorf("option -%c requires an argument", c)
-					}
-					i++
-					val = args[i]
-				}
-				switch c {
-				case 'i':
-					o.identity, o.identitySet = val, true
-				case 't':
-					o.target = val
-				default:
-					o.sshArgs = append(o.sshArgs, "-"+string(c), val)
-				}
-				j = len(a)
-			default:
-				return nil, fmt.Errorf("illegal option -- %c", c)
+		default:
+			used, err := o.parseFlags(a[1:], args[i+1:])
+			if err != nil {
+				return nil, err
 			}
+			i += used
 		}
 	}
 	if len(rest) != 1 {
@@ -125,6 +94,56 @@ func parseArgs(args []string) (*options, error) {
 	}
 	o.host = rest[0]
 	return o, nil
+}
+
+// parseFlags handles one bundle such as "fn" or "p2222" and returns how many
+// of the following words it consumed as a value.
+func (o *options) parseFlags(bundle string, next []string) (int, error) {
+	for j := 0; j < len(bundle); j++ {
+		switch c := bundle[j]; c {
+		case 'f':
+			o.force = true
+		case 'n':
+			o.dryRun = true
+		case 'x':
+			o.debug = true
+		case 'h', '?':
+			return 0, errHelp
+		case 'V':
+			return 0, errVersion
+		case 'i', 't', 'F', 'o', 'p':
+			return o.setValue(c, bundle[j+1:], next)
+		default:
+			return 0, fmt.Errorf("illegal option -- %c", c)
+		}
+	}
+	return 0, nil
+}
+
+// setValue stores a flag's value, attached (-p2222) or taken from the next
+// word. The value of -i is optional: it takes the next word only when another
+// word remains after it for the host.
+func (o *options) setValue(c byte, attached string, next []string) (int, error) {
+	val, used := attached, 0
+	if val == "" {
+		if c == 'i' && len(next) < 2 {
+			o.identitySet = true
+			return 0, nil
+		}
+		if len(next) == 0 {
+			return 0, fmt.Errorf("option -%c requires an argument", c)
+		}
+		val, used = next[0], 1
+	}
+	switch c {
+	case 'i':
+		o.identity, o.identitySet = val, true
+	case 't':
+		o.target = val
+	default:
+		o.sshArgs = append(o.sshArgs, "-"+string(c), val)
+	}
+	return used, nil
 }
 
 func run(o *options) error {
@@ -147,7 +166,7 @@ func run(o *options) error {
 	if o.debug {
 		fmt.Fprintf(os.Stderr, "ssh-copy-id: DEBUG: ssh %s\n", strings.Join(args, " "))
 	}
-	cmd := exec.Command("ssh", args...)
+	cmd := exec.Command(sshCommand, args...)
 	cmd.Stdin = strings.NewReader(strings.Join(keys, "\n") + "\n")
 	cmd.Stderr = os.Stderr
 	var out bytes.Buffer
