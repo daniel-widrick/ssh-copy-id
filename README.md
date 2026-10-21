@@ -4,6 +4,14 @@ A Go port of OpenSSH's `ssh-copy-id` that runs natively on Windows. It drives
 the system `ssh` (the Windows OpenSSH client), so `~/.ssh/config`, the agent,
 `known_hosts` and password prompts all behave as they do for plain `ssh`.
 
+Manual install: download `ssh-copy-id_windows_amd64.exe` (or `_arm64`) from
+the [latest release](https://github.com/daniel-widrick/ssh-copy-id/releases/latest),
+then from an elevated PowerShell:
+
+```powershell
+Copy-Item "$HOME\Downloads\ssh-copy-id_windows_amd64.exe" "$env:WINDIR\System32\ssh-copy-id.exe"
+```
+
 ```
 winget install daniel-widrick.ssh-copy-id
 ssh-copy-id user@host
